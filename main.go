@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 
 	"github.com/maxcillius/Distributed-Job-Scheduler/pkg"
+	"golang.org/x/sys/unix"
 )
 
 func main() {
@@ -14,12 +16,20 @@ func main() {
 }
 
 func run() int {
-
-	ctx, _ := context.WithCancel(context.Background())
+	ctx, stop := signal.NotifyContext(context.Background(), unix.SIGTERM, unix.SIGINT)
+	defer stop()
 	errChan := make(chan error)
+	trigChan := make(chan struct{})
 
 	go func() {
-		pkg.Watcher(ctx, errChan)
+		for range trigChan {
+			fmt.Println("Got the update request")
+			// Signal scheduler for updation
+		}
+	}()
+
+	go func() {
+		pkg.Watcher(ctx, trigChan, errChan)
 	}()
 
 	select {
