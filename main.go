@@ -21,12 +21,15 @@ func run() int {
 	errChan := make(chan error)
 	trigChan := make(chan struct{})
 
-	go func() {
-		for range trigChan {
-			fmt.Println("Got the update request")
-			// Signal scheduler for updation
-		}
-	}()
+	// go func() {
+	// 	for range trigChan {
+	// 		fmt.Println("Got the update request")
+	// 	}
+	// }()
+
+	// go func() {
+	// 	pkg.Scheduler(ctx, trigChan, errChan)
+	// }()
 
 	go func() {
 		pkg.Watcher(ctx, trigChan, errChan)
@@ -36,7 +39,7 @@ func run() int {
 	case <-ctx.Done():
 		return 0
 	case err := <-errChan:
-		fmt.Printf("error occurred: %v", err)
+		fmt.Printf("error occurred: %v\n", err)
 		return 1
 	}
 }

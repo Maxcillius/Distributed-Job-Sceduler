@@ -3,6 +3,7 @@ package pkg
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ func Watcher(ctx context.Context, trigChan chan<- struct{}, errChan chan<- error
 	currCommit := &head{
 		"",
 	}
+
 	// directory, ok := getPath("DIR")
 	// fmt.Println(directory)
 	// if !ok {
@@ -31,6 +33,7 @@ func Watcher(ctx context.Context, trigChan chan<- struct{}, errChan chan<- error
 	// 	errChan <- err
 	// 	return
 	// }
+
 	gitPath, err := exec.Command("which", "git").Output()
 	if err != nil {
 		errChan <- err
@@ -41,10 +44,26 @@ func Watcher(ctx context.Context, trigChan chan<- struct{}, errChan chan<- error
 		case <-ctx.Done():
 			return
 		default:
+			// Add functionality to pull at the start of the program
+			_, err := os.Stat("temp_jobs")
+			if os.IsNotExist(err) {
+				create := exec.Command("mkdir", "temp_jobs").Run()
+				if create != nil {
+					errChan <- create
+					return
+				}
+			} else if err != nil {
+				errChan <- err
+			}
 			pull := exec.Cmd{
 				Path: strings.TrimSpace(string(gitPath)),
 				Args: []string{"git", "pull"},
-				Dir:  "./Jobs",
+				Dir:  "./temp_jobs",
+			}
+			checkHead := exec.Cmd{
+				Path: strings.TrimSpace(string(gitPath)),
+				Args: []string{"git", "rev-parse", "HEAD"},
+				Dir:  "./temp_jobs",
 			}
 			if err := pull.Run(); err != nil {
 				errChan <- err
@@ -52,20 +71,20 @@ func Watcher(ctx context.Context, trigChan chan<- struct{}, errChan chan<- error
 			}
 			fmt.Println("Refreshed the repo")
 			fmt.Println("Checking for udpate...")
-			checkHead := exec.Cmd{
-				Path: strings.TrimSpace(string(gitPath)),
-				Args: []string{"git", "rev-parse", "HEAD"},
-				Dir:  "./Jobs",
-			}
-			info, err := checkHead.Output()
+			headInfo, err := checkHead.Output()
 			if err != nil {
 				errChan <- err
 				fmt.Printf("Error while checking HEAD: %v\n", err)
 				return
 			}
-			newCommit := string(info)
+			newCommit := string(headInfo)
 			if currCommit.commit != newCommit {
 				currCommit.commit = newCommit
+				err = exec.Command("mv", "temp_jobs", "Jobs").Run()
+				if err != nil {
+					errChan <- err
+					return
+				}
 				trigChan <- struct{}{}
 			}
 			time.Sleep(time.Minute)
