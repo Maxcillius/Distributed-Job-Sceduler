@@ -7,88 +7,101 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/go-logr/logr"
 )
 
-type head struct {
-	commit string
-}
+const (
+	repoURL    = "git@github.com:Maxcillius/Jobs.git"
+	mirrorDir  = "./.mirror"
+	stageDir   = "./.stage"
+	jobsDir    = "./Jobs"
+	pollPeriod = 10 * time.Second
+)
 
-// func getPath(key string) (string, bool) {
-// 	value, ok := os.LookupEnv(key)
-// 	if !ok {
-// 		return "", false
-// 	}
-// 	return value, true
-// }
+func Watcher(ctx context.Context, log logr.Logger, trigChan chan<- struct{}, errChan chan<- error) {
+	ticker := time.NewTicker(pollPeriod)
+	defer ticker.Stop()
 
-func Watcher(ctx context.Context, trigChan chan<- struct{}, errChan chan<- error) {
-	currCommit := &head{
-		"",
+	if err := syncRepo(trigChan); err != nil {
+		errChan <- fmt.Errorf("initial sync failed: %w", err)
 	}
 
-	// directory, ok := getPath("DIR")
-	// fmt.Println(directory)
-	// if !ok {
-	// 	err := fmt.Errorf("No jobs directory found\n")
-	// 	errChan <- err
-	// 	return
-	// }
-
-	gitPath, err := exec.Command("which", "git").Output()
-	if err != nil {
-		errChan <- err
-		return
-	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-			// Add functionality to pull at the start of the program
-			_, err := os.Stat("temp_jobs")
-			if os.IsNotExist(err) {
-				create := exec.Command("mkdir", "temp_jobs").Run()
-				if create != nil {
-					errChan <- create
-					return
-				}
-			} else if err != nil {
-				errChan <- err
+		case <-ticker.C:
+			if err := syncRepo(trigChan); err != nil {
+				errChan <- fmt.Errorf("sync failed: %w", err)
 			}
-			pull := exec.Cmd{
-				Path: strings.TrimSpace(string(gitPath)),
-				Args: []string{"git", "pull"},
-				Dir:  "./temp_jobs",
-			}
-			checkHead := exec.Cmd{
-				Path: strings.TrimSpace(string(gitPath)),
-				Args: []string{"git", "rev-parse", "HEAD"},
-				Dir:  "./temp_jobs",
-			}
-			if err := pull.Run(); err != nil {
-				errChan <- err
-				return
-			}
-			fmt.Println("Refreshed the repo")
-			fmt.Println("Checking for udpate...")
-			headInfo, err := checkHead.Output()
-			if err != nil {
-				errChan <- err
-				fmt.Printf("Error while checking HEAD: %v\n", err)
-				return
-			}
-			newCommit := string(headInfo)
-			if currCommit.commit != newCommit {
-				currCommit.commit = newCommit
-				err = exec.Command("mv", "temp_jobs", "Jobs").Run()
-				if err != nil {
-					errChan <- err
-					return
-				}
-				trigChan <- struct{}{}
-			}
-			time.Sleep(time.Minute)
-			// Add ticker instead
 		}
 	}
+}
+
+func syncRepo(trigChan chan<- struct{}) error {
+	if _, err := os.Stat(mirrorDir); os.IsNotExist(err) {
+		fmt.Println("Cloning repo...")
+		if err := exec.Command("git", "clone", repoURL, mirrorDir).Run(); err != nil {
+			return fmt.Errorf("clone failed: %w", err)
+		}
+	}
+
+	cmdPull := exec.Command("git", "pull")
+	cmdPull.Dir = mirrorDir
+	if err := cmdPull.Run(); err != nil {
+		return fmt.Errorf("pull failed: %w", err)
+	}
+
+	cmdRev := exec.Command("git", "rev-parse", "HEAD")
+	cmdRev.Dir = mirrorDir
+	out, err := cmdRev.Output()
+	if err != nil {
+		return fmt.Errorf("rev-parse failed: %w", err)
+	}
+	newCommit := strings.TrimSpace(string(out))
+
+	currentCommit := getCurrentCommit()
+
+	if newCommit != currentCommit || !dirExists(jobsDir) {
+		fmt.Printf("Change detected (Old: %s, New: %s). Swapping directories...\n", currentCommit, newCommit)
+
+		_ = os.RemoveAll(stageDir)
+
+		if err := exec.Command("cp", "-r", mirrorDir, stageDir).Run(); err != nil {
+			return fmt.Errorf("copy to stage failed: %w", err)
+		}
+
+		if dirExists(jobsDir) {
+			if err := os.RemoveAll(jobsDir); err != nil {
+				return fmt.Errorf("failed to delete old Jobs dir: %w", err)
+			}
+		}
+
+		if err := os.Rename(stageDir, jobsDir); err != nil {
+			return fmt.Errorf("rename failed: %w", err)
+		}
+
+		saveCurrentCommit(newCommit)
+
+		select {
+		case trigChan <- struct{}{}:
+		default:
+		}
+	}
+	return nil
+}
+
+func dirExists(path string) bool {
+	_, err := os.Stat(path)
+	return !os.IsNotExist(err)
+}
+
+func getCurrentCommit() string {
+	data, _ := os.ReadFile(".commit")
+	return string(data)
+}
+
+func saveCurrentCommit(hash string) {
+	_ = os.WriteFile(".commit", []byte(hash), 0644)
 }
