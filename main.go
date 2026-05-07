@@ -8,12 +8,26 @@ import (
 	"os/signal"
 
 	"github.com/go-logr/logr"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 	"github.com/maxcillius/Distributed-Job-Scheduler/logger"
 	"github.com/maxcillius/Distributed-Job-Scheduler/pkg"
+	"github.com/maxcillius/Distributed-Job-Scheduler/pkg/worker"
 	"golang.org/x/sys/unix"
 )
 
+var pool *pgxpool.Pool
+
+func loadenv() {
+	err := godotenv.Load()
+	if err != nil {
+		fmt.Println("No .env file found")
+	}
+}
+
 func main() {
+	loadenv()
+
 	mode := flag.String("mode", "manager", "Run mode: 'manager' or 'worker'")
 	flag.Parse()
 
@@ -71,6 +85,6 @@ func runWorker(ctx context.Context, l logr.Logger) {
 	wlog := l.WithName("worker")
 
 	wlog.Info("Starting System", "mode", "worker")
-	pkg.StartWorker(ctx, wlog)
+	worker.StartWorker(ctx, wlog)
 	wlog.Info("Worker shutting down...")
 }

@@ -12,7 +12,6 @@ import (
 )
 
 const (
-	repoURL    = "git@github.com:Maxcillius/Jobs.git"
 	mirrorDir  = "./.mirror"
 	stageDir   = "./.stage"
 	jobsDir    = "./Jobs"
@@ -20,10 +19,17 @@ const (
 )
 
 func Watcher(ctx context.Context, log logr.Logger, trigChan chan<- struct{}, errChan chan<- error) {
+	repoURL := os.Getenv("REPO_URL")
+
+	if len(repoURL) == 0 {
+		fmt.Println("Empty RepoURL")
+		errChan <- fmt.Errorf("Failed to read repoURL")
+	}
+
 	ticker := time.NewTicker(pollPeriod)
 	defer ticker.Stop()
 
-	if err := syncRepo(trigChan); err != nil {
+	if err := syncRepo(trigChan, repoURL); err != nil {
 		errChan <- fmt.Errorf("initial sync failed: %w", err)
 	}
 
@@ -32,14 +38,14 @@ func Watcher(ctx context.Context, log logr.Logger, trigChan chan<- struct{}, err
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := syncRepo(trigChan); err != nil {
+			if err := syncRepo(trigChan, repoURL); err != nil {
 				errChan <- fmt.Errorf("sync failed: %w", err)
 			}
 		}
 	}
 }
 
-func syncRepo(trigChan chan<- struct{}) error {
+func syncRepo(trigChan chan<- struct{}, repoURL string) error {
 	if _, err := os.Stat(mirrorDir); os.IsNotExist(err) {
 		fmt.Println("Cloning repo...")
 		if err := exec.Command("git", "clone", repoURL, mirrorDir).Run(); err != nil {
