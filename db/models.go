@@ -4,8 +4,16 @@
 
 package db
 
+import (
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
 type Jobstatus struct {
-	ID     int64
-	Name   string
-	Status string
+	ID             string
+	Name           string
+	Command        string
+	Args           []string
+	Workdir        pgtype.Text
+	Timeoutseconds pgtype.Int4
+	Status         string
 }

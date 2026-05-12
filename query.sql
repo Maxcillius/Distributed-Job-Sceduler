@@ -8,7 +8,7 @@ SELECT * FROM jobstatus WHERE status = $1;
 INSERT INTO jobstatus (
     id, name, command, Args, WorkDir, TimeoutSeconds, status
 ) VALUES (
-    $1, $2, $3, $3, $4, $5, $6, $7
+    $1, $2, $3, $4, $5, $6, $7
 )
 RETURNING *;
 

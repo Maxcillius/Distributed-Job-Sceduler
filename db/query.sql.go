@@ -7,30 +7,40 @@ package db
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const deleteJob = `-- name: DeleteJob :exec
 DELETE FROM jobstatus WHERE id = $1
 `
 
-func (q *Queries) DeleteJob(ctx context.Context, id int64) error {
+func (q *Queries) DeleteJob(ctx context.Context, id string) error {
 	_, err := q.db.Exec(ctx, deleteJob, id)
 	return err
 }
 
 const getJobStatus = `-- name: GetJobStatus :one
-SELECT id, name, status FROM jobstatus WHERE id = $1
+SELECT id, name, command, args, workdir, timeoutseconds, status FROM jobstatus WHERE id = $1
 `
 
-func (q *Queries) GetJobStatus(ctx context.Context, id int64) (Jobstatus, error) {
+func (q *Queries) GetJobStatus(ctx context.Context, id string) (Jobstatus, error) {
 	row := q.db.QueryRow(ctx, getJobStatus, id)
 	var i Jobstatus
-	err := row.Scan(&i.ID, &i.Name, &i.Status)
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Command,
+		&i.Args,
+		&i.Workdir,
+		&i.Timeoutseconds,
+		&i.Status,
+	)
 	return i, err
 }
 
 const getJobsByStatus = `-- name: GetJobsByStatus :many
-SELECT id, name, status FROM jobstatus WHERE status = $1
+SELECT id, name, command, args, workdir, timeoutseconds, status FROM jobstatus WHERE status = $1
 `
 
 func (q *Queries) GetJobsByStatus(ctx context.Context, status string) ([]Jobstatus, error) {
@@ -42,7 +52,15 @@ func (q *Queries) GetJobsByStatus(ctx context.Context, status string) ([]Jobstat
 	var items []Jobstatus
 	for rows.Next() {
 		var i Jobstatus
-		if err := rows.Scan(&i.ID, &i.Name, &i.Status); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Command,
+			&i.Args,
+			&i.Workdir,
+			&i.Timeoutseconds,
+			&i.Status,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -55,31 +73,43 @@ func (q *Queries) GetJobsByStatus(ctx context.Context, status string) ([]Jobstat
 
 const insertJob = `-- name: InsertJob :exec
 INSERT INTO jobstatus (
-    id, name, status
+    id, name, command, Args, WorkDir, TimeoutSeconds, status
 ) VALUES (
-    $1, $2, $3
+    $1, $2, $3, $4, $5, $6, $7
 )
-RETURNING id, name, status
+RETURNING id, name, command, args, workdir, timeoutseconds, status
 `
 
 type InsertJobParams struct {
-	ID     int64
-	Name   string
-	Status string
+	ID             string
+	Name           string
+	Command        string
+	Args           []string
+	Workdir        pgtype.Text
+	Timeoutseconds pgtype.Int4
+	Status         string
 }
 
 func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) error {
-	_, err := q.db.Exec(ctx, insertJob, arg.ID, arg.Name, arg.Status)
+	_, err := q.db.Exec(ctx, insertJob,
+		arg.ID,
+		arg.Name,
+		arg.Command,
+		arg.Args,
+		arg.Workdir,
+		arg.Timeoutseconds,
+		arg.Status,
+	)
 	return err
 }
 
 const updateJob = `-- name: UpdateJob :exec
 UPDATE jobstatus SET status = $2 WHERE id = $1
-RETURNING id, name, status
+RETURNING id, name, command, args, workdir, timeoutseconds, status
 `
 
 type UpdateJobParams struct {
-	ID     int64
+	ID     string
 	Status string
 }
 

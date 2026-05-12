@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/maxcillius/Distributed-Job-Scheduler/db"
 )
 
 const (
@@ -18,7 +19,7 @@ const (
 	pollPeriod = 10 * time.Second
 )
 
-func Watcher(ctx context.Context, log logr.Logger, trigChan chan<- struct{}, errChan chan<- error) {
+func Watcher(ctx context.Context, log logr.Logger, trigChan chan<- struct{}, errChan chan<- error, pool *db.Queries) {
 	repoURL := os.Getenv("REPO_URL")
 
 	if len(repoURL) == 0 {

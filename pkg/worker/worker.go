@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/maxcillius/Distributed-Job-Scheduler/db"
 	"github.com/maxcillius/Distributed-Job-Scheduler/logger"
 	"github.com/maxcillius/Distributed-Job-Scheduler/types"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -20,7 +21,7 @@ func failOnError(err error, msg string, l logr.Logger) {
 	}
 }
 
-func StartWorker(ctx context.Context, log logr.Logger) {
+func StartWorker(ctx context.Context, log logr.Logger, pool *db.Queries) {
 
 	l, err := logger.New()
 	if err != nil {

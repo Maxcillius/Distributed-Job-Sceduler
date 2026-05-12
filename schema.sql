@@ -1,5 +1,5 @@
 CREATE TABLE jobstatus (
-    id BIGSERIAL PRIMARY KEY,
+    id text PRIMARY KEY,
     name text NOT NULL,
     command text NOT NULL,
     Args text[],
