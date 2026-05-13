@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/rand"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -96,7 +97,10 @@ func StartWorker(ctx context.Context, log logr.Logger, pool *repository.DbCall) 
 		false,
 		false,
 		amqp.Table{
-			amqp.QueueTypeArg: amqp.QueueTypeQuorum,
+			amqp.QueueTypeArg:           amqp.QueueTypeQuorum,
+			"x-dead-letter-exchange":    "jobs_dlx",
+			"x-dead-letter-routing-key": "jobs_failed",
+			"x-delivery-limit":          5,
 		},
 	)
 	if err != nil {
@@ -127,20 +131,20 @@ func StartWorker(ctx context.Context, log logr.Logger, pool *repository.DbCall) 
 			payload := d.Body
 			var task types.JobTask
 			if err := json.Unmarshal([]byte(payload), &task); err != nil {
-				log.Error(err, "[Worker] Invalid job payload")
-				_ = d.Reject(false) // Drop malformed messages
+				log.Error(err, "[Worker] Invalid job payload, sending to DLQ")
+				_ = d.Nack(false, false) // requeue = false routes it to DLX
 				continue
 			}
 
 			h := sha256.New()
 			h.Write([]byte(fmt.Sprintf("%s%s%s%s", task.Name, task.Command, task.WorkDir, task.Args)))
-			hash := h.Sum(nil)
-			jobID := string(hash)
+			jobID := fmt.Sprintf("%x", h.Sum(nil))
 
 			log.Info("Received Task", "job_name", task.Name)
 
 			if err := pool.UpdateJobStatus(ctx, jobID, "running"); err != nil {
 				log.Error(err, fmt.Sprintf("failed to update job status. job: %s", task.Name))
+
 				_ = d.Nack(false, true)
 				continue
 			}
@@ -186,19 +190,38 @@ func runDockerJob(ctx context.Context, cli *client.Client, task types.JobTask) e
 	defer reader.Close()
 	_, _ = io.Copy(io.Discard, reader)
 
-	cmd := []string{task.Command}
-	cmd = append(cmd, task.Args...)
+	var cmd []string
+	if task.Command != "" {
+		cmd = append(cmd, task.Command)
+	}
+	if len(task.Args) > 0 {
+		cmd = append(cmd, task.Args...)
+	}
+
+	var dockerCmd []string
+	if len(cmd) > 0 {
+		dockerCmd = cmd
+	} else {
+		dockerCmd = nil
+	}
 
 	var envs []string
 	for k, v := range task.Env {
 		envs = append(envs, fmt.Sprintf("%s=%s", k, v))
 	}
 
+	workDir := task.WorkDir
+	if workDir == "." {
+		workDir = ""
+	} else if workDir != "" && !strings.HasPrefix(workDir, "/") {
+		workDir = "/" + workDir
+	}
+
 	resp, err := cli.ContainerCreate(jobCtx, &container.Config{
 		Image:      imageName,
-		Cmd:        cmd,
+		Cmd:        dockerCmd,
 		Env:        envs,
-		WorkingDir: task.WorkDir,
+		WorkingDir: workDir,
 	}, nil, nil, nil, "")
 	if err != nil {
 		return fmt.Errorf("failed to create container: %w", err)
