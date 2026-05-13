@@ -9,7 +9,9 @@ The system decouples job scheduling from execution using a manager-worker patter
 * **Manager:** Watches a Git repository for changes. When the repository updates, the manager parses job configuration files and pushes tasks to a Redis queue.
 * **Worker:** Listens to the Redis queue, pulls tasks, and executes them locally (typically using Docker). Workers can be scaled horizontally across multiple machines.
 
-<img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/d413d28b-dc65-4c9a-a4ab-2daa6a69ee75" />
+
+<img width="2816" height="1536" alt="Gemini_Generated_Image_vdue1uvdue1uvdue" src="https://github.com/user-attachments/assets/ceb99fca-7d65-4d6f-877c-6df8aa5f479b" />
+
 
 
 ## Features
