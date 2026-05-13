@@ -71,7 +71,7 @@ func (q *Queries) GetJobsByStatus(ctx context.Context, status string) ([]Jobstat
 	return items, nil
 }
 
-const insertJob = `-- name: InsertJob :exec
+const insertJob = `-- name: InsertJob :one
 INSERT INTO jobstatus (
     id, name, command, Args, WorkDir, TimeoutSeconds, status
 ) VALUES (
@@ -90,8 +90,8 @@ type InsertJobParams struct {
 	Status         string
 }
 
-func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) error {
-	_, err := q.db.Exec(ctx, insertJob,
+func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) (Jobstatus, error) {
+	row := q.db.QueryRow(ctx, insertJob,
 		arg.ID,
 		arg.Name,
 		arg.Command,
@@ -100,10 +100,20 @@ func (q *Queries) InsertJob(ctx context.Context, arg InsertJobParams) error {
 		arg.Timeoutseconds,
 		arg.Status,
 	)
-	return err
+	var i Jobstatus
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Command,
+		&i.Args,
+		&i.Workdir,
+		&i.Timeoutseconds,
+		&i.Status,
+	)
+	return i, err
 }
 
-const updateJob = `-- name: UpdateJob :exec
+const updateJob = `-- name: UpdateJob :one
 UPDATE jobstatus SET status = $2 WHERE id = $1
 RETURNING id, name, command, args, workdir, timeoutseconds, status
 `
@@ -113,7 +123,17 @@ type UpdateJobParams struct {
 	Status string
 }
 
-func (q *Queries) UpdateJob(ctx context.Context, arg UpdateJobParams) error {
-	_, err := q.db.Exec(ctx, updateJob, arg.ID, arg.Status)
-	return err
+func (q *Queries) UpdateJob(ctx context.Context, arg UpdateJobParams) (Jobstatus, error) {
+	row := q.db.QueryRow(ctx, updateJob, arg.ID, arg.Status)
+	var i Jobstatus
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Command,
+		&i.Args,
+		&i.Workdir,
+		&i.Timeoutseconds,
+		&i.Status,
+	)
+	return i, err
 }
