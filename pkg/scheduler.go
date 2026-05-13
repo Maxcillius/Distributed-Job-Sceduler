@@ -85,8 +85,22 @@ func Scheduler(ctx context.Context, log logr.Logger, trigChan <-chan struct{}, e
 	defer ch.Close()
 	log.Info("Opened a channel")
 
-	q, err := ch.QueueDeclare(
-		"jobs",
+	err = ch.ExchangeDeclare(
+		"jobs_dlx",
+		"direct",
+		true,
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		panic(fmt.Errorf("Failed to declare DLX: %w", err)) // Use errChan <- err in scheduler
+	}
+	log.Info("Declared Dead Letter Exchange")
+
+	_, err = ch.QueueDeclare(
+		"jobs_dlq",
 		true,
 		false,
 		false,
@@ -96,10 +110,39 @@ func Scheduler(ctx context.Context, log logr.Logger, trigChan <-chan struct{}, e
 		},
 	)
 	if err != nil {
-		errChan <- fmt.Errorf("failed to declare producer queue: %w", err)
-		return
+		panic(fmt.Errorf("Failed to declare DLQ: %w", err))
 	}
-	log.Info("Declared a queue")
+	log.Info("Declared Dead Letter Queue")
+
+	// 3. Bind the DLQ to the DLX
+	err = ch.QueueBind(
+		"jobs_dlq",
+		"jobs_failed",
+		"jobs_dlx",
+		false,
+		nil,
+	)
+	if err != nil {
+		panic(fmt.Errorf("Failed to bind DLQ: %w", err))
+	}
+
+	q, err := ch.QueueDeclare(
+		"jobs",
+		true,
+		false,
+		false,
+		false,
+		amqp.Table{
+			amqp.QueueTypeArg:           amqp.QueueTypeQuorum,
+			"x-dead-letter-exchange":    "jobs_dlx",
+			"x-dead-letter-routing-key": "jobs_failed",
+			"x-delivery-limit":          5,
+		},
+	)
+	if err != nil {
+		panic(fmt.Errorf("Failed to declare main jobs queue: %w", err))
+	}
+	log.Info("Declared main jobs queue with DLX routing")
 
 	for {
 		select {
@@ -124,9 +167,9 @@ func Scheduler(ctx context.Context, log logr.Logger, trigChan <-chan struct{}, e
 
 					h := sha256.New()
 					h.Write([]byte(fmt.Sprintf("%s%s%s%s", task.Name, task.Command, task.WorkDir, task.Args)))
-					hash := h.Sum(nil)
+					jobID := fmt.Sprintf("%x", h.Sum(nil))
 
-					exist, err := pool.IsJobActive(ctx, string(hash))
+					exist, err := pool.IsJobActive(ctx, jobID)
 					if err != nil {
 						log.Error(err, fmt.Sprintf("failed to check the status of %s", task.Name))
 						continue
@@ -142,7 +185,7 @@ func Scheduler(ctx context.Context, log logr.Logger, trigChan <-chan struct{}, e
 					}
 
 					jobDetails := db.InsertJobParams{
-						ID:             string(hash),
+						ID:             jobID,
 						Name:           task.Name,
 						Command:        task.Command,
 						Args:           task.Args,
